@@ -5,7 +5,6 @@ import re
 import shutil
 from datetime import datetime, timezone, timedelta
 
-# --- CONFIGURATION ---
 base_directory = '.'
 VIDEO_EXTS = ('.mp4', '.m4v', '.mov', '.3gp', '.avi', '.qt')
 PHOTO_EXTS = ('.jpg', '.jpeg', '.png', '.heic', '.tif', '.tiff', '.webp', '.gif')
@@ -50,8 +49,8 @@ def get_exif_info(media_path):
     try:
         cmd = ['exiftool', '-s3', '-d', '%Y:%m:%d %H:%M:%S', '-DateTimeOriginal', '-SubSecTimeOriginal', '-Make', '-Model', media_path]
         res = subprocess.check_output(cmd, stderr=subprocess.STDOUT).decode().splitlines()
-        dt_str = res[0].strip() if len(res) > 0 else None
-        ms_str = res[1].strip() if len(res) > 1 else "000"
+        dt_str = res[0].strip() if len(res) > 0 and ":" in res[0] else None
+        ms_str = res[1].strip() if len(res) > 1 and res[1].strip().isdigit() else "000"
         make = res[2].strip() if len(res) > 2 else ""
         model = res[3].strip() if len(res) > 3 else ""
         dt_obj = datetime.strptime(dt_str, "%Y:%m:%d %H:%M:%S").replace(tzinfo=timezone.utc) if dt_str else None
@@ -142,7 +141,12 @@ def process_master(folder_path):
         dt_base = datetime.fromtimestamp(data['ts'], tz=timezone.utc)
         file_identity = data['base_lower']
 
-        ms_val = int(data['ms'])
+        # Validación de ms_val para evitar el error ValueError
+        try:
+            ms_val = int(data['ms'])
+        except (ValueError, TypeError):
+            ms_val = 0
+
         while True:
             time_key = dt_base.strftime("%Y%m%d_%H%M%S") + str(ms_val).zfill(3)
             if time_key in occupied_times and occupied_times[time_key] != file_identity:
@@ -156,7 +160,6 @@ def process_master(folder_path):
         exif_fmt = final_dt.strftime("%Y:%m:%d %H:%M:%S")
         exif_fmt_utc = f"{exif_fmt}+00:00"
 
-        # Se mantiene sin -n para respetar el string literal del offset en FileModifyDate
         cmd = ['exiftool', '-overwrite_original', '-P', '-m', '-api', 'LargeFileSupport=1']
 
         CLEANUP_TAGS = ['-XMP-X:XMPToolkit=', '-*URL=']
@@ -167,7 +170,6 @@ def process_master(folder_path):
 
         if data['is_video']:
             v_tags = detect_existing_video_tags(media_path)
-            # FileCreateDate/ModifyDate usan UTC absoluto. CreateDate/ModifyDate usan formato limpio.
             cmd += [f'-FileCreateDate={exif_fmt_utc}', f'-FileModifyDate={exif_fmt_utc}',
                     f'-CreateDate={exif_fmt}', f'-ModifyDate={exif_fmt}',
                     f'-CreationDate={exif_fmt_utc}', '-UserData:DateTimeOriginal=']
@@ -178,7 +180,7 @@ def process_master(folder_path):
                     f'-CreateDate={exif_fmt}', f'-ModifyDate={exif_fmt}',
                     f'-DateTimeOriginal={exif_fmt}', f'-SubSecTimeOriginal={ms_final}']
             cmd += CLEANUP_TAGS
-
+        
         subprocess.run(cmd + [media_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         ext_orig = os.path.splitext(data['orig_name'])[1].lower()
