@@ -7,33 +7,41 @@ from datetime import datetime, timezone, timedelta
 
 """
 Script: takeout-sync.py
-Description: An advanced automation tool designed to reorganize, rename, and repair
-             metadata for photo and video libraries exported from Google Takeout.
-             It ensures a consistent naming convention while preserving or
-             restoring technical details.
+Description: An advanced automation tool designed to reorganize, rename, and repair 
+             metadata for photo and video libraries exported from Google Takeout. 
+             Handles missing file extensions by identifying them via ExifTool.
 """
 
 # --- CONFIGURATION ---
 base_directory = '.'
-VIDEO_EXTS = ('.mp4', '.m4v', '.mov', '.3gp')
+VIDEO_EXTS = ('.mp4', '.m4v', '.mov', '.3gp', '.avi', '.qt')
 PHOTO_EXTS = ('.jpg', '.jpeg', '.png', '.heic', '.tif', '.tiff', '.webp', '.gif')
 
-# --- EXTENDED PLATFORM LIBRARY (CHILE & GLOBAL) ---
 PLATFORM_MAPPING = {
-    'apple': 'iOS',
-    'samsung': 'Android', 'motorola': 'Android', 'xiaomi': 'Android', 'redmi': 'Android',
-    'poco': 'Android', 'huawei': 'Android', 'honor': 'Android', 'oppo': 'Android',
-    'vivo': 'Android', 'realme': 'Android', 'google': 'Android', 'pixel': 'Android',
-    'sony': 'Android', 'htc': 'Android', 'lg': 'Android', 'tcl': 'Android',
-    'alcatel': 'Android', 'zte': 'Android', 'oneplus': 'Android', 'asus': 'Android',
-    'lenovo': 'Android', 'tecno': 'Android', 'infinix': 'Android', 'itel': 'Android',
-    'bgh': 'Android', 'own': 'Android',
-    'microsoft': 'WinPhone', 'lumia': 'WinPhone',
-    'blackberry': 'BlackBerry', 'rim': 'BlackBerry'
+    'apple': 'iOS', 'samsung': 'Android', 'motorola': 'Android', 'xiaomi': 'Android',
+    'huawei': 'Android', 'google': 'Android', 'htc': 'Android', 'lg': 'Android',
+    'microsoft': 'WinPhone', 'lumia': 'WinPhone', 'blackberry': 'BlackBerry'
 }
 
+def fix_missing_extensions(folder_path):
+    """Phase 0: Identify and fix files without extensions using ExifTool."""
+    files = os.listdir(folder_path)
+    for f in files:
+        full_path = os.path.join(folder_path, f)
+        if os.path.isfile(full_path) and '.' not in f:
+            try:
+                print(f"🔍 Identifying extensionless file: {f}")
+                cmd = ['exiftool', '-s3', '-FileTypeExtension', full_path]
+                ext = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode().strip()
+                if ext:
+                    new_name = f"{f}.{ext.lower()}"
+                    new_path = os.path.join(folder_path, new_name)
+                    os.rename(full_path, new_path)
+                    print(f"📝 Renamed: {f} -> {new_name}")
+            except:
+                pass
+
 def smart_json_search(media_path, base_name, orig_ext, file_list):
-    """Handles Google Takeout truncation and index shifting."""
     dir_name = os.path.dirname(media_path)
     attempts = [f"{base_name}{orig_ext}.json", f"{base_name}.json"]
     idx_match = re.search(r'(.*)\((\d+)\)$', base_name)
@@ -47,13 +55,11 @@ def smart_json_search(media_path, base_name, orig_ext, file_list):
     if len(base_name) >= 40:
         low_name = base_name.lower()
         for f in file_list:
-            if f.lower().endswith('.json'):
-                if len(base_name) >= 47 and f.lower().startswith(low_name[:47]): return os.path.join(dir_name, f)
-                if f.lower().startswith(low_name[:40]): return os.path.join(dir_name, f)
+            if f.lower().endswith('.json') and (f.lower().startswith(low_name[:47]) or f.lower().startswith(low_name[:40])):
+                return os.path.join(dir_name, f)
     return None
 
 def detect_final_suffix(make, model, dt_obj, d_json):
-    """Detects OS suffix from EXIF or nested JSON deviceType."""
     full_info = f"{make or ''} {model or ''}".lower()
     if 'nokia' in full_info:
         if 'lumia' in full_info: return "_WinPhone"
@@ -69,7 +75,6 @@ def detect_final_suffix(make, model, dt_obj, d_json):
     return ""
 
 def get_exif_info(media_path):
-    """Extracts basic metadata using ExifTool."""
     try:
         cmd = ['exiftool', '-s3', '-d', '%Y:%m:%d %H:%M:%S', '-DateTimeOriginal', '-SubSecTimeOriginal', '-Make', '-Model', media_path]
         res = subprocess.check_output(cmd, stderr=subprocess.STDOUT).decode().splitlines()
@@ -81,7 +86,6 @@ def get_exif_info(media_path):
     except: return None, "000", "", ""
 
 def detect_existing_video_tags(path):
-    """Checks for existing video metadata tags to update."""
     tags = ['TrackCreateDate', 'TrackModifyDate', 'MediaCreateDate', 'MediaModifyDate']
     try:
         cmd = ['exiftool', '-s', '-m'] + [f'-{t}' for t in tags] + [path]
@@ -91,6 +95,10 @@ def detect_existing_video_tags(path):
 
 def process_master(folder_path):
     abs_folder = os.path.abspath(folder_path)
+    
+    # PHASE 0: Fix files without extensions
+    fix_missing_extensions(abs_folder)
+    
     print(f"🔍 Scanning folder: {abs_folder}")
     file_list = os.listdir(abs_folder)
     valid_files = [f for f in file_list if f.lower().endswith(PHOTO_EXTS + VIDEO_EXTS)]
@@ -102,7 +110,7 @@ def process_master(folder_path):
         media_path = os.path.join(abs_folder, file_name)
         dt_str, ms_exif, make, model = get_exif_info(media_path)
         json_path = smart_json_search(media_path, base_name, ext, file_list)
-
+        
         d_json = None
         if json_path:
             try:
@@ -129,7 +137,7 @@ def process_master(folder_path):
             'is_video': ext.lower() in VIDEO_EXTS
         }
 
-    # --- STEP 2: SYNC (Video inherits from Photo) ---
+    # STEP 2: SYNC (Video inherits from Photo)
     photo_dict = {v['base_lower']: k for k, v in collection.items() if not v['is_video']}
     for k, data in collection.items():
         if data['is_video']:
@@ -139,13 +147,13 @@ def process_master(folder_path):
                 data['ts'], data['ms'], data['suffix'] = ref_p['ts'], ref_p['ms'], ref_p['suffix']
                 if not data['json']: data['json'] = ref_p['json']
 
-    # --- STEP 3: PROCESSING & EXIF WRITING ---
+    # STEP 3: PROCESSING
     occupied_times, burst_offsets = {}, {}
     for k in sorted(collection.keys()):
         data = collection[k]
         media_path = os.path.join(abs_folder, data['orig_name'])
         dt_base = datetime.fromtimestamp(data['ts'], tz=timezone.utc)
-
+        
         time_key = dt_base.strftime("%Y%m%d_%H%M%S") + data['ms']
         if time_key in occupied_times:
             if occupied_times[time_key] == data['base_lower']: ms_offset = 0
@@ -159,12 +167,12 @@ def process_master(folder_path):
         ms_final = (data['ms'] if ms_offset == 0 else str(final_dt.microsecond // 1000).zfill(3))
         exif_fmt = final_dt.strftime("%Y:%m:%d %H:%M:%S")
 
-        # WRITE METADATA TO FILE
+        # EXIFTOOL Writing
         cmd = ['exiftool', '-overwrite_original', '-P', '-m', '-n', '-api', 'LargeFileSupport=1', '-api', 'ignoreMinorErrors=1']
         if data['json'] and data['json'].get('geoData', {}).get('latitude', 0.0) != 0.0:
             geo = data['json']['geoData']
             cmd += [f'-GPSLatitude={geo["latitude"]}', f'-GPSLongitude={geo["longitude"]}', f'-GPSAltitude={geo.get("altitude", 0.0)}']
-
+        
         if data['is_video']:
             v_tags = detect_existing_video_tags(media_path)
             cmd += [f'-FileCreateDate={exif_fmt}', f'-FileModifyDate={exif_fmt}', f'-CreateDate={exif_fmt}', f'-ModifyDate={exif_fmt}',
@@ -175,13 +183,13 @@ def process_master(folder_path):
                     f'-DateTimeOriginal={exif_fmt}', f'-SubSecTimeOriginal={ms_final}']
         subprocess.run(cmd + [media_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-        # EXTENSIONS & DESTINATION
+        # Move and Rename
         orig_ext = os.path.splitext(data['orig_name'])[1].lower()
         ext_mapping = {'.jpeg': '.jpg', '.tiff': '.tif', '.m4v': '.mp4'}
         final_ext = ext_mapping.get(orig_ext, orig_ext)
         dest_dir = os.path.join(abs_folder, final_dt.strftime("%Y"), final_dt.strftime("%m"))
         os.makedirs(dest_dir, exist_ok=True)
-
+        
         final_base = final_dt.strftime("%Y%m%d_%H%M%S") + ms_final + data['suffix']
         dest_path = os.path.join(dest_dir, final_base + final_ext)
 
@@ -189,10 +197,9 @@ def process_master(folder_path):
         while os.path.exists(dest_path):
             dest_path = os.path.join(dest_dir, f"{final_base}_{c}{final_ext}")
             c += 1
-
+        
         shutil.move(media_path, dest_path)
 
-        # UPDATE AND SAVE JSON
         if data['json']:
             j_copy = data['json'].copy()
             j_copy['title'] = os.path.basename(dest_path)
