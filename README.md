@@ -10,3 +10,7 @@ An advanced automation tool designed to reorganize, rename, and repair metadata 
 - Format Normalization: Standardizes legacy or redundant extensions (e.g., .jpeg → .jpg, .tiff → .tif, .m4v → .mp4) across the file system and within the internal JSON metadata tags.
 - Burst & Conflict Handling: Manages simultaneous captures (burst photos) by adding millisecond offsets to prevent file name collisions.
 - GPS & Metadata Injection: Injects GPS coordinates and creation dates directly into the file's binary headers using exiftool for permanent compatibility with gallery apps.
+
+## Useful links:
+**Obtaining Exiftool**
+- The original version by Phil Harvey. https://exiftool.org/
