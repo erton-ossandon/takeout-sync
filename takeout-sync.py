@@ -141,7 +141,6 @@ def process_master(folder_path):
         dt_base = datetime.fromtimestamp(data['ts'], tz=timezone.utc)
         file_identity = data['base_lower']
 
-        # Validación de ms_val para evitar el error ValueError
         try:
             ms_val = int(data['ms'])
         except (ValueError, TypeError):
