@@ -36,10 +36,17 @@ def fix_missing_extensions(folder_path):
 def smart_json_search(media_path, base_name, orig_ext, file_list):
     dir_name = os.path.dirname(media_path)
     attempts = [f"{base_name}{orig_ext}.json", f"{base_name}.json"]
+
+    # Manejo de índices tipo (1)
     idx_match = re.search(r'(.*)\((\d+)\)$', base_name)
     if idx_match:
         name_no_idx, idx = idx_match.groups()
         attempts.extend([f"{name_no_idx}{orig_ext}({idx}).json", f"{name_no_idx}({idx}){orig_ext}.json"])
+
+    # Caso de borde: JSON con un carácter menos al final (ej: ...00000.jpg -> ...0000.json)
+    if len(base_name) > 5:
+        attempts.append(f"{base_name[:-1]}.json")
+
     for name in attempts:
         path = os.path.join(dir_name, name)
         if os.path.exists(path): return path
@@ -179,7 +186,7 @@ def process_master(folder_path):
                     f'-CreateDate={exif_fmt}', f'-ModifyDate={exif_fmt}',
                     f'-DateTimeOriginal={exif_fmt}', f'-SubSecTimeOriginal={ms_final}']
             cmd += CLEANUP_TAGS
-        
+
         subprocess.run(cmd + [media_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         ext_orig = os.path.splitext(data['orig_name'])[1].lower()
