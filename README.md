@@ -1,7 +1,7 @@
-#Takeout Sync
+# Takeout Sync
 An advanced automation tool designed to reorganize, rename, and repair metadata for photo and video libraries exported from Google Takeout. It ensures a consistent naming convention while preserving or restoring technical details.
 
-Key Features:
+## Key Features:
 - Intelligent Renaming & Hierarchy: Renames files to a precise YYYYMMDD_HHMMSSms_OS.ext format and organizes them into a hierarchical folder structure by Year and Month.
 - Multi-Source Metadata Recovery: Prioritizes EXIF data (via exiftool) but falls back to Google JSON sidecars if metadata is missing (common in shared or compressed media).
 - Ecosystem Detection (Platform Suffixes): Automatically detects and appends the source platform suffix (_iOS, _Android, _WinPhone, _BlackBerry, _Symbian) by analyzing camera manufacturers, models, and JSON device type fields.
