@@ -9,7 +9,8 @@ from datetime import datetime, timezone, timedelta
 Script: takeout-sync.py
 Description: An advanced automation tool designed to reorganize, rename, and repair 
              metadata for photo and video libraries exported from Google Takeout. 
-             Handles missing file extensions by identifying them via ExifTool.
+             Handles missing extensions, platform detection (30+ brands), 
+             Nokia legacy logic, and filename truncation.
 """
 
 # --- CONFIGURATION ---
@@ -17,10 +18,18 @@ base_directory = '.'
 VIDEO_EXTS = ('.mp4', '.m4v', '.mov', '.3gp', '.avi', '.qt')
 PHOTO_EXTS = ('.jpg', '.jpeg', '.png', '.heic', '.tif', '.tiff', '.webp', '.gif')
 
+# --- FULL PLATFORM LIBRARY (CHILE & GLOBAL 2010-2024) ---
 PLATFORM_MAPPING = {
-    'apple': 'iOS', 'samsung': 'Android', 'motorola': 'Android', 'xiaomi': 'Android',
-    'huawei': 'Android', 'google': 'Android', 'htc': 'Android', 'lg': 'Android',
-    'microsoft': 'WinPhone', 'lumia': 'WinPhone', 'blackberry': 'BlackBerry'
+    'apple': 'iOS',
+    'samsung': 'Android', 'motorola': 'Android', 'xiaomi': 'Android', 'redmi': 'Android',
+    'poco': 'Android', 'huawei': 'Android', 'honor': 'Android', 'oppo': 'Android',
+    'vivo': 'Android', 'realme': 'Android', 'google': 'Android', 'pixel': 'Android',
+    'sony': 'Android', 'htc': 'Android', 'lg': 'Android', 'tcl': 'Android',
+    'alcatel': 'Android', 'zte': 'Android', 'oneplus': 'Android', 'asus': 'Android',
+    'lenovo': 'Android', 'tecno': 'Android', 'infinix': 'Android', 'itel': 'Android',
+    'bgh': 'Android', 'own': 'Android',
+    'microsoft': 'WinPhone', 'lumia': 'WinPhone',
+    'blackberry': 'BlackBerry', 'rim': 'BlackBerry'
 }
 
 def fix_missing_extensions(folder_path):
@@ -28,6 +37,7 @@ def fix_missing_extensions(folder_path):
     files = os.listdir(folder_path)
     for f in files:
         full_path = os.path.join(folder_path, f)
+        # Only process files that are NOT directories and have NO extension
         if os.path.isfile(full_path) and '.' not in f:
             try:
                 print(f"🔍 Identifying extensionless file: {f}")
@@ -38,10 +48,10 @@ def fix_missing_extensions(folder_path):
                     new_path = os.path.join(folder_path, new_name)
                     os.rename(full_path, new_path)
                     print(f"📝 Renamed: {f} -> {new_name}")
-            except:
-                pass
+            except: pass
 
 def smart_json_search(media_path, base_name, orig_ext, file_list):
+    """Handles Google Takeout truncation (47-51 chars) and moved indices."""
     dir_name = os.path.dirname(media_path)
     attempts = [f"{base_name}{orig_ext}.json", f"{base_name}.json"]
     idx_match = re.search(r'(.*)\((\d+)\)$', base_name)
@@ -60,13 +70,21 @@ def smart_json_search(media_path, base_name, orig_ext, file_list):
     return None
 
 def detect_final_suffix(make, model, dt_obj, d_json):
+    """Comprehensive OS detection including Nokia special logic and nested JSON deviceType."""
     full_info = f"{make or ''} {model or ''}".lower()
+    
+    # 1. Nokia Specific Eras
     if 'nokia' in full_info:
         if 'lumia' in full_info: return "_WinPhone"
-        if (dt_obj and dt_obj.year >= 2017): return "_Android"
+        is_android_mod = re.search(r'nokia [1-9](\.[1-9])?|nokia [gcx][0-9]', full_info)
+        if is_android_mod or (dt_obj and dt_obj.year >= 2017): return "_Android"
         return "_Symbian"
+
+    # 2. General Manufacturer Mapping
     for key, suffix in PLATFORM_MAPPING.items():
         if key in full_info: return f"_{suffix}"
+        
+    # 3. Google Photos JSON deviceType (Nested Path)
     try:
         dtype = d_json['googlePhotosOrigin']['mobileUpload']['deviceType'].upper()
         if dtype == 'IOS_PHONE': return "_iOS"
@@ -78,11 +96,12 @@ def get_exif_info(media_path):
     try:
         cmd = ['exiftool', '-s3', '-d', '%Y:%m:%d %H:%M:%S', '-DateTimeOriginal', '-SubSecTimeOriginal', '-Make', '-Model', media_path]
         res = subprocess.check_output(cmd, stderr=subprocess.STDOUT).decode().splitlines()
-        dt_str = res[0].strip() if len(res) > 0 else None
-        ms_str = res[1].strip() if len(res) > 1 else "000"
-        make = res[2].strip() if len(res) > 2 else ""
-        model = res[3].strip() if len(res) > 3 else ""
-        return dt_str, ms_str[:3], make, model
+        dt_str = res.strip() if len(res) > 0 else None
+        ms_str = res.strip() if len(res) > 1 else "000"
+        make = res.strip() if len(res) > 2 else ""
+        model = res.strip() if len(res) > 3 else ""
+        dt_obj = datetime.strptime(dt_str, "%Y:%m:%d %H:%M:%S").replace(tzinfo=timezone.utc) if dt_str else None
+        return dt_obj, ms_str[:3].ljust(3, '0'), make, model
     except: return None, "000", "", ""
 
 def detect_existing_video_tags(path):
@@ -96,11 +115,11 @@ def detect_existing_video_tags(path):
 def process_master(folder_path):
     abs_folder = os.path.abspath(folder_path)
     
-    # PHASE 0: Fix files without extensions
+    # PHASE 0: Identify and fix extensionless files
     fix_missing_extensions(abs_folder)
     
     print(f"🔍 Scanning folder: {abs_folder}")
-    file_list = os.listdir(abs_folder)
+    file_list = sorted(os.listdir(abs_folder))
     valid_files = [f for f in file_list if f.lower().endswith(PHOTO_EXTS + VIDEO_EXTS)]
     print(f"Found {len(valid_files)} media files.")
 
@@ -108,32 +127,32 @@ def process_master(folder_path):
     for file_name in valid_files:
         base_name, ext = os.path.splitext(file_name)
         media_path = os.path.join(abs_folder, file_name)
-        dt_str, ms_exif, make, model = get_exif_info(media_path)
+        dt_exif, ms_exif, make, model = get_exif_info(media_path)
         json_path = smart_json_search(media_path, base_name, ext, file_list)
         
-        d_json = None
+        d_json, jsons_to_delete = None, []
         if json_path:
+            jsons_to_delete.append(json_path)
             try:
                 with open(json_path, 'r', encoding='utf-8') as f: d_json = json.load(f)
             except: pass
 
         ts, dt_obj = None, None
-        if dt_str:
-            try:
-                dt_obj = datetime.strptime(dt_str, "%Y:%m:%d %H:%M:%S").replace(tzinfo=timezone.utc)
-                ts = int(dt_obj.timestamp())
-            except: pass
-        if ts is None and d_json:
+        if dt_exif:
+            ts = int(dt_exif.timestamp())
+            dt_obj = dt_exif
+        elif d_json:
             ts = int(d_json['photoTakenTime']['timestamp'])
             dt_obj = datetime.fromtimestamp(ts, tz=timezone.utc)
-        elif ts is None:
+        else:
             ts = int(os.path.getmtime(media_path))
             dt_obj = datetime.fromtimestamp(ts, tz=timezone.utc)
 
         suffix = detect_final_suffix(make, model, dt_obj, d_json)
         collection[file_name.lower()] = {
             'orig_name': file_name, 'ts': ts, 'ms': ms_exif, 'json': d_json,
-            'json_orig': json_path, 'suffix': suffix, 'base_lower': base_name.lower(),
+            'json_orig': json_path, 'jsons_to_delete': jsons_to_delete, 
+            'suffix': suffix, 'base_lower': base_name.lower(),
             'is_video': ext.lower() in VIDEO_EXTS
         }
 
@@ -206,8 +225,8 @@ def process_master(folder_path):
             j_copy['photoTakenTime'] = {'timestamp': str(int(final_dt.timestamp())), 'formatted': final_dt.strftime("%d %b %Y %H:%M:%S") + f".{ms_final} UTC"}
             with open(dest_path + ".json", 'w', encoding='utf-8') as fj:
                 json.dump(j_copy, fj, indent=2)
-            if data['json_orig'] and os.path.exists(data['json_orig']):
-                os.remove(data['json_orig'])
+            for j_del in data['jsons_to_delete']:
+                if os.path.exists(j_del): os.remove(j_del)
 
         print(f"✅ {data['orig_name']} -> {os.path.relpath(dest_path, abs_folder)}")
 
