@@ -11,6 +11,12 @@ An advanced automation tool designed to reorganize, rename, and repair metadata 
 - Burst & Conflict Handling: Manages simultaneous captures (burst photos) by adding millisecond offsets to prevent file name collisions.
 - GPS & Metadata Injection: Injects GPS coordinates and creation dates directly into the file's binary headers using exiftool for permanent compatibility with gallery apps.
 
+## How to use:
+1. Save this code in a file called `takeout-sync.py`.
+2. Make sure you have `exiftool` installed on your system.
+3. Run it with **`python takeout-sync.py`** inside the folder where your Google Takeout files are located.
+
 ## Useful links:
 **Obtaining Exiftool**
 - The original version by Phil Harvey. https://exiftool.org/
+- Exiftool installation instructions. https://exiftool.org/install.html
