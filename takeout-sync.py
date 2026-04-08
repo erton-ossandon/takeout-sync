@@ -51,10 +51,10 @@ def get_exif_info(media_path):
     try:
         cmd = ['exiftool', '-s3', '-d', '%Y:%m:%d %H:%M:%S', '-DateTimeOriginal', '-SubSecTimeOriginal', '-Make', '-Model', media_path]
         res = subprocess.check_output(cmd, stderr=subprocess.STDOUT).decode().splitlines()
-        dt_str = res.strip() if len(res) > 0 and ":" in res else None
-        ms_str = res.strip() if len(res) > 1 and res.strip().isdigit() else "000"
-        make = res.strip() if len(res) > 2 else ""
-        model = res.strip() if len(res) > 3 else ""
+        dt_str = res[0].strip() if len(res) > 0 and ":" in res[0] else None
+        ms_str = res[1].strip() if len(res) > 1 and res[1].strip().isdigit() else "000"
+        make = res[2].strip() if len(res) > 2 else ""
+        model = res[3].strip() if len(res) > 3 else ""
         dt_obj = datetime.strptime(dt_str, "%Y:%m:%d %H:%M:%S").replace(tzinfo=timezone.utc) if dt_str else None
         return dt_obj, ms_str[:3].zfill(3), make, model
     except: return None, "000", "", ""
@@ -172,12 +172,14 @@ def process_master(folder_path):
         else:
             cmd += [f'-FileCreateDate#={exif_fmt_utc}', f'-FileModifyDate#={exif_fmt_utc}',
                     f'-CreateDate#={exif_fmt}', f'-ModifyDate#={exif_fmt}',
-                    f'-DateTimeOriginal#={exif_fmt}', f'-SubSecTimeOriginal#={ms_final}']
+                    f'-DateTimeOriginal={exif_fmt}', f'-SubSecTimeOriginal={ms_final}']
             cmd += CLEANUP_TAGS
 
         subprocess.run(cmd + [media_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-        ext_orig = os.path.splitext(data['orig_name']).lower()
+        _, ext_orig_raw = os.path.splitext(data['orig_name'])
+        ext_orig = ext_orig_raw.lower()
+
         ext = {'.jpeg': '.jpg', '.tiff': '.tif', '.m4v': '.mp4'}.get(ext_orig, ext_orig)
         dest_dir = os.path.join(abs_folder, final_dt.strftime("%Y"), final_dt.strftime("%m"))
         os.makedirs(dest_dir, exist_ok=True)
