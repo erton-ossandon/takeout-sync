@@ -37,13 +37,11 @@ def smart_json_search(media_path, base_name, orig_ext, file_list):
     dir_name = os.path.dirname(media_path)
     attempts = [f"{base_name}{orig_ext}.json", f"{base_name}.json"]
 
-    # Manejo de índices tipo (1)
     idx_match = re.search(r'(.*)\((\d+)\)$', base_name)
     if idx_match:
         name_no_idx, idx = idx_match.groups()
         attempts.extend([f"{name_no_idx}{orig_ext}({idx}).json", f"{name_no_idx}({idx}){orig_ext}.json"])
 
-    # Caso de borde: JSON con un carácter menos al final (ej: ...00000.jpg -> ...0000.json)
     if len(base_name) > 5:
         attempts.append(f"{base_name[:-1]}.json")
 
