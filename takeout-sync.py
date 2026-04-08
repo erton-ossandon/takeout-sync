@@ -166,7 +166,7 @@ def process_master(folder_path):
             v_tags = detect_existing_video_tags(media_path)
             cmd += [f'-FileCreateDate#={exif_fmt_utc}', f'-FileModifyDate#={exif_fmt_utc}',
                     f'-CreateDate#={exif_fmt}', f'-ModifyDate#={exif_fmt}',
-                    f'-CreationDate#={exif_fmt}.{ms_final}', '-UserData:DateTimeOriginal=']
+                    f'-Keys:CreationDate#={exif_fmt}.{ms_final}', '-UserData:DateTimeOriginal=']
             cmd += CLEANUP_TAGS
             for t in v_tags: cmd.append(f'-{t}#={exif_fmt}')
         else:
