@@ -36,15 +36,12 @@ def fix_missing_extensions(folder_path):
 def smart_json_search(media_path, base_name, orig_ext, file_list):
     dir_name = os.path.dirname(media_path)
     attempts = [f"{base_name}{orig_ext}.json", f"{base_name}.json"]
-
     idx_match = re.search(r'(.*)\((\d+)\)$', base_name)
     if idx_match:
         name_no_idx, idx = idx_match.groups()
         attempts.extend([f"{name_no_idx}{orig_ext}({idx}).json", f"{name_no_idx}({idx}){orig_ext}.json"])
-
     if len(base_name) > 5:
         attempts.append(f"{base_name[:-1]}.json")
-
     for name in attempts:
         path = os.path.join(dir_name, name)
         if os.path.exists(path): return path
@@ -131,13 +128,7 @@ def process_master(folder_path):
             data['ts'], data['ms'], data['suffix'] = ref['ts'], ref['ms'], ref['suffix']
             if not data['json']: data['json'] = ref['json']
 
-    def sorting_key(key):
-        item = collection[key]
-        clean_name = re.sub(r'\(\d+\)', '', item['base_lower'])
-        has_parenthesis = 1 if '(' in item['orig_name'] else 0
-        return (item['ts'], clean_name, has_parenthesis, 1 if item['is_video'] else 0)
-
-    sorted_keys = sorted(collection.keys(), key=sorting_key)
+    sorted_keys = sorted(collection.keys(), key=lambda k: (collection[k]['ts'], re.sub(r'\(\d+\)', '', collection[k]['base_lower']), 1 if '(' in collection[k]['orig_name'] else 0, 1 if collection[k]['is_video'] else 0))
     occupied_times = {}
 
     for k in sorted_keys:
@@ -165,7 +156,6 @@ def process_master(folder_path):
         exif_fmt_utc = f"{exif_fmt}+00:00"
 
         cmd = ['exiftool', '-overwrite_original', '-P', '-m', '-api', 'LargeFileSupport=1']
-
         CLEANUP_TAGS = ['-XMP-X:XMPToolkit=', '-*URL=']
 
         if data['json'] and data['json'].get('geoData', {}).get('latitude', 0.0) != 0.0:
@@ -203,11 +193,33 @@ def process_master(folder_path):
         shutil.move(media_path, dest_path)
 
         if data['json']:
-            j_copy = data['json'].copy()
-            j_copy['title'] = os.path.basename(dest_path)
-            j_copy['photoTakenTime'] = {'timestamp': str(int(final_dt.timestamp())), 'formatted': final_dt.strftime("%d %b %Y %H:%M:%S") + f".{ms_final} UTC"}
+            orig = data['json']
+            ts_millis = str(int(final_dt.timestamp() * 1000))
+            fmt_str = final_dt.strftime("%d %b %Y %H:%M:%S") + f".{ms_final} UTC"
+            time_obj = {'timestamp': ts_millis, 'formatted': fmt_str}
+
+            new_json = {
+                "title": os.path.basename(dest_path),
+                "description": orig.get("description", ""),
+                "imageViews": "",
+                "creationTime": time_obj,
+                "photoTakenTime": time_obj,
+                "geoData": orig.get("geoData", {
+                    "latitude": 0.0, "longitude": 0.0, "altitude": 0.0,
+                    "latitudeSpan": 0.0, "longitudeSpan": 0.0
+                }),
+                "geoDataExif": orig.get("geoDataExif", {
+                    "latitude": 0.0, "longitude": 0.0, "altitude": 0.0,
+                    "latitudeSpan": 0.0, "longitudeSpan": 0.0
+                }),
+                "url": "",
+                "googlePhotosOrigin": orig.get("googlePhotosOrigin", {
+                    "mobileUpload": {"deviceType": "UNKNOWN"}
+                })
+            }
+
             with open(dest_path + ".json", 'w', encoding='utf-8') as fj:
-                json.dump(j_copy, fj, indent=2, ensure_ascii=False)
+                json.dump(new_json, fj, indent=2, ensure_ascii=False)
 
             if data['json_orig_path'] and os.path.exists(data['json_orig_path']):
                 os.remove(data['json_orig_path'])
