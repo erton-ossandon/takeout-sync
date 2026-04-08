@@ -93,8 +93,25 @@ def process_master(folder_path):
     photo_count = video_count = 0
 
     for file_name in valid_files:
+        current_path = os.path.join(abs_folder, file_name)
+        
+        # New Routine: Detect real extension mismatch
+        try:
+            real_ext_cmd = ['exiftool', '-s3', '-FileTypeExtension', current_path]
+            real_ext = subprocess.check_output(real_ext_cmd).decode().strip().lower()
+            if real_ext:
+                real_ext = f".{real_ext}"
+                name_part, old_ext = os.path.splitext(file_name)
+                if real_ext != old_ext.lower() and not (real_ext == '.jpg' and old_ext.lower() == '.jpeg'):
+                    new_file_name = f"{name_part}{real_ext}"
+                    new_path = os.path.join(abs_folder, new_file_name)
+                    os.rename(current_path, new_path)
+                    file_name = new_file_name
+                    current_path = new_path
+        except: pass
+
         base_name, ext = os.path.splitext(file_name)
-        media_path = os.path.join(abs_folder, file_name)
+        media_path = current_path
         dt_exif, ms_exif, make, model = get_exif_info(media_path)
         json_path = smart_json_search(media_path, base_name, ext, file_list)
 
@@ -174,12 +191,12 @@ def process_master(folder_path):
                     f'-CreateDate={exif_fmt}', f'-ModifyDate={exif_fmt}',
                     f'-DateTimeOriginal={exif_fmt}', f'-SubSecTimeOriginal={ms_final}']
             cmd += CLEANUP_TAGS
-
+        
         subprocess.run(cmd + [media_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         _, ext_orig_raw = os.path.splitext(data['orig_name'])
         ext_orig = ext_orig_raw.lower()
-
+        
         ext = {'.jpeg': '.jpg', '.tiff': '.tif', '.m4v': '.mp4'}.get(ext_orig, ext_orig)
         dest_dir = os.path.join(abs_folder, final_dt.strftime("%Y"), final_dt.strftime("%m"))
         os.makedirs(dest_dir, exist_ok=True)
@@ -219,7 +236,7 @@ def process_master(folder_path):
                     "mobileUpload": {"deviceType": "UNKNOWN"}
                 })
             }
-
+            
             with open(dest_path + ".json", 'w', encoding='utf-8') as fj:
                 json.dump(new_json, fj, indent=2, ensure_ascii=False)
 
