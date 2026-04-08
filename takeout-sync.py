@@ -156,7 +156,7 @@ def process_master(folder_path):
         exif_fmt_utc = f"{exif_fmt}+00:00"
 
         cmd = ['exiftool', '-overwrite_original', '-P', '-m', '-api', 'LargeFileSupport=1']
-        CLEANUP_TAGS = ['-XMP-X:XMPToolkit=', '-*URL=']
+        CLEANUP_TAGS = ['-XMP-X:XMPToolkit=', '-*URL=', '-CreatorTool=']
 
         if data['json'] and data['json'].get('geoData', {}).get('latitude', 0.0) != 0.0:
             geo = data['json']['geoData']
@@ -171,7 +171,7 @@ def process_master(folder_path):
             for t in v_tags: cmd.append(f'-{t}#={exif_fmt}')
         else:
             cmd += [f'-FileCreateDate#={exif_fmt_utc}', f'-FileModifyDate#={exif_fmt_utc}',
-                    f'-CreateDate#={exif_fmt}', f'-ModifyDate#={exif_fmt}',
+                    f'-CreateDate={exif_fmt}', f'-ModifyDate={exif_fmt}',
                     f'-DateTimeOriginal={exif_fmt}', f'-SubSecTimeOriginal={ms_final}']
             cmd += CLEANUP_TAGS
 
