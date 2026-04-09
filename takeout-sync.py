@@ -173,7 +173,7 @@ def process_master(folder_path):
         exif_fmt_utc = f"{exif_fmt}+00:00"
 
         cmd = ['exiftool', '-overwrite_original', '-P', '-m', '-api', 'LargeFileSupport=1']
-        CLEANUP_TAGS = ['-XMP-X:XMPToolkit=', '-*URL=', '-CreatorTool=']
+        CLEANUP_TAGS = ['-XMP-X:XMPToolkit=', '-XMP-DC:Description=', '-XMP-XMP:CreatorTool=']
 
         if data['json'] and data['json'].get('geoData', {}).get('latitude', 0.0) != 0.0:
             geo = data['json']['geoData']
