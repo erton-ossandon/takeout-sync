@@ -49,12 +49,12 @@ def smart_json_search(media_path, base_name, orig_ext, file_list):
 
 def get_exif_info(media_path):
     try:
-        cmd = ['exiftool', '-s3', '-d', '%Y:%m:%d %H:%M:%S', '-DateTimeOriginal', '-SubSecTimeOriginal', '-Make', '-Model', media_path]
+        cmd = ['exiftool', '-s3', '-d', '%Y:%m:%d %H:%M:%S', '-DateTimeOriginal', '-CreateDate', '-SubSecTimeOriginal', '-Make', '-Model', media_path]
         res = subprocess.check_output(cmd, stderr=subprocess.STDOUT).decode().splitlines()
-        dt_str = res[0].strip() if len(res) > 0 and ":" in res[0] else None
-        ms_str = res[1].strip() if len(res) > 1 and res[1].strip().isdigit() else "000"
-        make = res[2].strip() if len(res) > 2 else ""
-        model = res[3].strip() if len(res) > 3 else ""
+        dt_str = res[0].strip() if len(res) > 0 and ":" in res[0] else (res[1].strip() if len(res) > 1 and ":" in res[1] else None)
+        ms_str = res[2].strip() if len(res) > 2 and res[2].strip().isdigit() else "000"
+        make = res[3].strip() if len(res) > 3 else ""
+        model = res[4].strip() if len(res) > 4 else ""
         dt_obj = datetime.strptime(dt_str, "%Y:%m:%d %H:%M:%S").replace(tzinfo=timezone.utc) if dt_str else None
         return dt_obj, ms_str[:3].zfill(3), make, model
     except: return None, "000", "", ""
@@ -94,16 +94,16 @@ def process_master(folder_path):
 
     for file_name in valid_files:
         current_path = os.path.join(abs_folder, file_name)
-        
-        # New Routine: Detect real extension mismatch
+        base_name_orig, ext_orig = os.path.splitext(file_name)
+        json_path = smart_json_search(current_path, base_name_orig, ext_orig, file_list)
+
         try:
             real_ext_cmd = ['exiftool', '-s3', '-FileTypeExtension', current_path]
             real_ext = subprocess.check_output(real_ext_cmd).decode().strip().lower()
             if real_ext:
                 real_ext = f".{real_ext}"
-                name_part, old_ext = os.path.splitext(file_name)
-                if real_ext != old_ext.lower() and not (real_ext == '.jpg' and old_ext.lower() == '.jpeg'):
-                    new_file_name = f"{name_part}{real_ext}"
+                if real_ext != ext_orig.lower() and not (real_ext == '.jpg' and ext_orig.lower() == '.jpeg'):
+                    new_file_name = f"{base_name_orig}{real_ext}"
                     new_path = os.path.join(abs_folder, new_file_name)
                     os.rename(current_path, new_path)
                     file_name = new_file_name
@@ -113,7 +113,6 @@ def process_master(folder_path):
         base_name, ext = os.path.splitext(file_name)
         media_path = current_path
         dt_exif, ms_exif, make, model = get_exif_info(media_path)
-        json_path = smart_json_search(media_path, base_name, ext, file_list)
 
         d_json = None
         if json_path:
@@ -175,9 +174,9 @@ def process_master(folder_path):
         cmd = ['exiftool', '-overwrite_original', '-P', '-m', '-api', 'LargeFileSupport=1']
         CLEANUP_TAGS = ['-XMP-X:XMPToolkit=', '-XMP-DC:Description=', '-XMP-XMP:CreatorTool=']
 
-        if data['json'] and data['json'].get('geoData', {}).get('latitude', 0.0) != 0.0:
+        if data['json'] and (data['json'].get('geoData', {}).get('latitude', 0.0) != 0.0 or data['json'].get('geoData', {}).get('longitude', 0.0) != 0.0):
             geo = data['json']['geoData']
-            cmd += [f'-GPSLatitude={geo["latitude"]}', f'-GPSLongitude={geo["longitude"]}', f'-GPSAltitude={geo.get("altitude", 0.0)}']
+            cmd += [f'-GPSLatitude={geo.get("latitude", 0.0)}', f'-GPSLongitude={geo.get("longitude", 0.0)}', f'-GPSAltitude={geo.get("altitude", 0.0)}']
 
         if data['is_video']:
             v_tags = detect_existing_video_tags(media_path)
@@ -188,8 +187,8 @@ def process_master(folder_path):
             for t in v_tags: cmd.append(f'-{t}#={exif_fmt}')
         else:
             cmd += [f'-FileCreateDate#={exif_fmt_utc}', f'-FileModifyDate#={exif_fmt_utc}',
-                    f'-CreateDate={exif_fmt}', f'-ModifyDate={exif_fmt}',
-                    f'-DateTimeOriginal={exif_fmt}', f'-SubSecTimeOriginal={ms_final}']
+                    f'-CreateDate#={exif_fmt}', f'-ModifyDate#={exif_fmt}',
+                    f'-DateTimeOriginal#={exif_fmt}', f'-SubSecTimeOriginal={ms_final}']
             cmd += CLEANUP_TAGS
         
         subprocess.run(cmd + [media_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
