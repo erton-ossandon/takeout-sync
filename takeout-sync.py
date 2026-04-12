@@ -171,9 +171,8 @@ def process_master(folder_path):
         exif_fmt = final_dt.strftime("%Y:%m:%d %H:%M:%S")
 
         cmd = ['exiftool', '-overwrite_original', '-P', '-m', '-api', 'LargeFileSupport=1']
-        
         CLEANUP_TAGS = [
-            '-XMP-X:XMPToolkit=', '-XMP-DC:Description=', '-XMP-XMP:CreatorTool=',
+            '-XMP:XMPToolkit=', '-XMP-dc:Description=', '-XMP-xmp:CreatorTool=',
             '-OffsetTime=', '-OffsetTimeOriginal=', '-OffsetTimeDigitized='
         ]
 
@@ -191,10 +190,7 @@ def process_master(folder_path):
         else:
             cmd += [f'-FileCreateDate={exif_fmt}', f'-FileModifyDate={exif_fmt}',
                     f'-CreateDate={exif_fmt}', f'-ModifyDate={exif_fmt}',
-                    f'-DateTimeOriginal={exif_fmt}', 
-                    f'-SubSecTimeOriginal={ms_final}',
-                    f'-SubSecTimeDigitized={ms_final}',
-                    f'-SubSecTime={ms_final}']
+                    f'-DateTimeOriginal={exif_fmt}', f'-SubSecTimeOriginal={ms_final}']
             cmd += CLEANUP_TAGS
         
         subprocess.run(cmd + [media_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
