@@ -169,10 +169,13 @@ def process_master(folder_path):
         final_dt = dt_base.replace(microsecond=0) + timedelta(milliseconds=ms_val)
         ms_final = str(ms_val).zfill(3)
         exif_fmt = final_dt.strftime("%Y:%m:%d %H:%M:%S")
-        exif_fmt_utc = f"{exif_fmt}+00:00"
 
         cmd = ['exiftool', '-overwrite_original', '-P', '-m', '-api', 'LargeFileSupport=1']
-        CLEANUP_TAGS = ['-XMP-X:XMPToolkit=', '-XMP-DC:Description=', '-XMP-XMP:CreatorTool=']
+        
+        CLEANUP_TAGS = [
+            '-XMP-X:XMPToolkit=', '-XMP-DC:Description=', '-XMP-XMP:CreatorTool=',
+            '-OffsetTime=', '-OffsetTimeOriginal=', '-OffsetTimeDigitized='
+        ]
 
         if data['json'] and (data['json'].get('geoData', {}).get('latitude', 0.0) != 0.0 or data['json'].get('geoData', {}).get('longitude', 0.0) != 0.0):
             geo = data['json']['geoData']
@@ -180,15 +183,18 @@ def process_master(folder_path):
 
         if data['is_video']:
             v_tags = detect_existing_video_tags(media_path)
-            cmd += [f'-FileCreateDate#={exif_fmt_utc}', f'-FileModifyDate#={exif_fmt_utc}',
-                    f'-CreateDate#={exif_fmt}', f'-ModifyDate#={exif_fmt}',
-                    f'-Keys:CreationDate#={exif_fmt}.{ms_final}', '-UserData:DateTimeOriginal=']
+            cmd += [f'-FileCreateDate={exif_fmt}', f'-FileModifyDate={exif_fmt}',
+                    f'-CreateDate={exif_fmt}', f'-ModifyDate={exif_fmt}',
+                    f'-Keys:CreationDate={exif_fmt}.{ms_final}', '-UserData:DateTimeOriginal=']
             cmd += CLEANUP_TAGS
-            for t in v_tags: cmd.append(f'-{t}#={exif_fmt}')
+            for t in v_tags: cmd.append(f'-{t}={exif_fmt}')
         else:
-            cmd += [f'-FileCreateDate#={exif_fmt_utc}', f'-FileModifyDate#={exif_fmt_utc}',
-                    f'-CreateDate#={exif_fmt}', f'-ModifyDate#={exif_fmt}',
-                    f'-DateTimeOriginal#={exif_fmt}', f'-SubSecTimeOriginal={ms_final}']
+            cmd += [f'-FileCreateDate={exif_fmt}', f'-FileModifyDate={exif_fmt}',
+                    f'-CreateDate={exif_fmt}', f'-ModifyDate={exif_fmt}',
+                    f'-DateTimeOriginal={exif_fmt}', 
+                    f'-SubSecTimeOriginal={ms_final}',
+                    f'-SubSecTimeDigitized={ms_final}',
+                    f'-SubSecTime={ms_final}']
             cmd += CLEANUP_TAGS
         
         subprocess.run(cmd + [media_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
