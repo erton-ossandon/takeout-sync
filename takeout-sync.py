@@ -49,18 +49,27 @@ def smart_json_search(media_path, base_name, orig_ext, file_list):
 
 def get_exif_info(media_path):
     try:
-        cmd = ['exiftool', '-s3', '-d', '%Y:%m:%d %H:%M:%S', '-DateTimeOriginal', '-CreateDate', '-SubSecTimeOriginal', '-Make', '-Model', media_path]
+        cmd = ['exiftool', '-s3', '-d', '%Y:%m:%d %H:%M:%S', '-DateTimeOriginal', '-CreateDate', '-SubSecTimeOriginal', '-Make', '-Model', '-OffsetTime', media_path]
         res = subprocess.check_output(cmd, stderr=subprocess.STDOUT).decode().splitlines()
         dt_str = res[0].strip() if len(res) > 0 and ":" in res[0] else (res[1].strip() if len(res) > 1 and ":" in res[1] else None)
         ms_str = res[2].strip() if len(res) > 2 and res[2].strip().isdigit() else "000"
         make = res[3].strip() if len(res) > 3 else ""
         model = res[4].strip() if len(res) > 4 else ""
+        offset = res[5].strip() if len(res) > 5 else ""
         dt_obj = datetime.strptime(dt_str, "%Y:%m:%d %H:%M:%S").replace(tzinfo=timezone.utc) if dt_str else None
-        return dt_obj, ms_str[:3].zfill(3), make, model
-    except: return None, "000", "", ""
+        return dt_obj, ms_str[:3].zfill(3), make, model, offset
+    except: return None, "000", "", "", ""
 
 def detect_existing_video_tags(path):
     tags = ['TrackCreateDate', 'TrackModifyDate', 'MediaCreateDate', 'MediaModifyDate']
+    try:
+        cmd = ['exiftool', '-s', '-m'] + [f'-{t}' for t in tags] + [path]
+        output = subprocess.check_output(cmd, stderr=subprocess.STDOUT).decode().lower()
+        return [t for t in tags if t.lower() in output]
+    except: return []
+
+def detect_existing_image_tags(path):
+    tags = ['OffsetTime', 'OffsetTimeOriginal', 'OffsetTimeDigitized']
     try:
         cmd = ['exiftool', '-s', '-m'] + [f'-{t}' for t in tags] + [path]
         output = subprocess.check_output(cmd, stderr=subprocess.STDOUT).decode().lower()
@@ -112,7 +121,7 @@ def process_master(folder_path):
 
         base_name, ext = os.path.splitext(file_name)
         media_path = current_path
-        dt_exif, ms_exif, make, model = get_exif_info(media_path)
+        dt_exif, ms_exif, make, model, offset = get_exif_info(media_path)
 
         d_json = None
         if json_path:
@@ -124,7 +133,8 @@ def process_master(folder_path):
             ts = int(dt_exif.timestamp()); dt_obj = dt_exif
         elif d_json:
             ts = int(d_json['photoTakenTime']['timestamp'])
-            dt_obj = datetime.fromtimestamp(ts, tz=timezone.utc)
+            ts_sec = ts / 1000.0 if ts > 9999999999 else ts
+            dt_obj = datetime.fromtimestamp(ts_sec, tz=timezone.utc)
         else:
             ts = int(os.path.getmtime(media_path)); dt_obj = datetime.fromtimestamp(ts, tz=timezone.utc)
 
@@ -132,7 +142,7 @@ def process_master(folder_path):
         collection[file_name.lower()] = {
             'orig_name': file_name, 'ts': ts, 'ms': ms_exif, 'json': d_json,
             'json_orig_path': json_path, 'suffix': detect_final_suffix(make, model, dt_obj, d_json),
-            'base_lower': base_name.lower(), 'is_video': is_video
+            'base_lower': base_name.lower(), 'is_video': is_video, 'offset': offset
         }
         if is_video: video_count += 1
         else: photo_count += 1
@@ -141,7 +151,7 @@ def process_master(folder_path):
     for k, data in collection.items():
         if data['is_video'] and data['base_lower'] in photo_dict:
             ref = collection[photo_dict[data['base_lower']]]
-            data['ts'], data['ms'], data['suffix'] = ref['ts'], ref['ms'], ref['suffix']
+            data['ts'], data['ms'], data['suffix'], data['offset'] = ref['ts'], ref['ms'], ref['suffix'], ref['offset']
             if not data['json']: data['json'] = ref['json']
 
     sorted_keys = sorted(collection.keys(), key=lambda k: (collection[k]['ts'], re.sub(r'\(\d+\)', '', collection[k]['base_lower']), 1 if '(' in collection[k]['orig_name'] else 0, 1 if collection[k]['is_video'] else 0))
@@ -150,7 +160,9 @@ def process_master(folder_path):
     for k in sorted_keys:
         data = collection[k]
         media_path = os.path.join(abs_folder, data['orig_name'])
-        dt_base = datetime.fromtimestamp(data['ts'], tz=timezone.utc)
+        ts_val = data['ts']
+        ts_sec = ts_val / 1000.0 if ts_val > 9999999999 else ts_val
+        dt_base = datetime.fromtimestamp(ts_sec, tz=timezone.utc)
         file_identity = data['base_lower']
 
         try:
@@ -173,25 +185,33 @@ def process_master(folder_path):
         cmd = ['exiftool', '-overwrite_original', '-P', '-m', '-api', 'LargeFileSupport=1']
         CLEANUP_TAGS = [
             '-XMP:XMPToolkit=', '-XMP-dc:Description=', '-XMP-xmp:CreatorTool=',
-            '-OffsetTime=', '-OffsetTimeOriginal=', '-OffsetTimeDigitized='
+            '-XMP:CreateDate=', '-XMP:ModifyDate=', '-XMP:DateTimeOriginal=',
+            '-XMP-Photoshop:DateCreated=', '-XMP-Photoshop:History='
         ]
+        
+        cmd += CLEANUP_TAGS
 
         if data['json'] and (data['json'].get('geoData', {}).get('latitude', 0.0) != 0.0 or data['json'].get('geoData', {}).get('longitude', 0.0) != 0.0):
             geo = data['json']['geoData']
             cmd += [f'-GPSLatitude={geo.get("latitude", 0.0)}', f'-GPSLongitude={geo.get("longitude", 0.0)}', f'-GPSAltitude={geo.get("altitude", 0.0)}']
 
+        val = data['offset'] if data['offset'] else ''
+
         if data['is_video']:
             v_tags = detect_existing_video_tags(media_path)
-            cmd += [f'-FileCreateDate={exif_fmt}', f'-FileModifyDate={exif_fmt}',
-                    f'-CreateDate={exif_fmt}', f'-ModifyDate={exif_fmt}',
-                    f'-Keys:CreationDate={exif_fmt}.{ms_final}', '-UserData:DateTimeOriginal=']
-            cmd += CLEANUP_TAGS
-            for t in v_tags: cmd.append(f'-{t}={exif_fmt}')
+            cmd += [f'-FileCreateDate#={exif_fmt}{val}', f'-FileModifyDate#={exif_fmt}{val}',
+                    f'-CreateDate#={exif_fmt}', f'-ModifyDate#={exif_fmt}', f'-DateTimeOriginal#={exif_fmt}',
+                    f'-Keys:CreationDate#={exif_fmt}.{ms_final}{val}', '-UserData:DateTimeOriginal=']
+            if v_tags:
+                cmd += [f'-TrackCreateDate#={exif_fmt}', f'-TrackModifyDate#={exif_fmt}', 
+                        f'-MediaCreateDate#={exif_fmt}', f'-MediaModifyDate#={exif_fmt}']
         else:
-            cmd += [f'-FileCreateDate={exif_fmt}', f'-FileModifyDate={exif_fmt}',
-                    f'-CreateDate={exif_fmt}', f'-ModifyDate={exif_fmt}',
-                    f'-DateTimeOriginal={exif_fmt}', f'-SubSecTimeOriginal={ms_final}']
-            cmd += CLEANUP_TAGS
+            i_tags = detect_existing_image_tags(media_path)
+            cmd += [f'-FileCreateDate#={exif_fmt}{val}', f'-FileModifyDate#={exif_fmt}{val}',
+                    f'-CreateDate#={exif_fmt}', f'-ModifyDate#={exif_fmt}', f'-DateTimeOriginal#={exif_fmt}',
+                    f'-SubSecTime#={ms_final}', f'-SubSecTimeOriginal#={ms_final}', f'-SubSecTimeDigitized#={ms_final}']
+            if i_tags:
+                cmd += [f'-OffsetTime#={val}', f'-OffsetTimeOriginal#={val}', f'-OffsetTimeDigitized#={val}']
         
         subprocess.run(cmd + [media_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -244,7 +264,7 @@ def process_master(folder_path):
             if data['json_orig_path'] and os.path.exists(data['json_orig_path']):
                 os.remove(data['json_orig_path'])
 
-        print(f"✅ {data['orig_name']} -> {os.path.relpath(dest_path, abs_folder)} (ms: {ms_final})")
+        print(f"✅ {data['orig_name']} -> {os.path.relpath(dest_path, abs_folder)}")
 
     print("\n" + "="*40 + f"\n🚀 PROCESS COMPLETED\n📸 Photos: {photo_count}\n🎥 Videos: {video_count}\n" + "="*40)
 
