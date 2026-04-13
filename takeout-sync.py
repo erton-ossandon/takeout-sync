@@ -52,26 +52,26 @@ def get_exif_info(media_path):
         cmd = ['exiftool', '-s3', '-d', '%Y:%m:%d %H:%M:%S', '-DateTimeOriginal', '-CreateDate', '-SubSecTimeOriginal', '-Make', '-Model', '-OffsetTime', media_path]
         res = subprocess.check_output(cmd, stderr=subprocess.STDOUT).decode().splitlines()
         dt_str = res[0].strip() if len(res) > 0 and ":" in res[0] else (res[1].strip() if len(res) > 1 and ":" in res[1] else None)
-        ms_str = res[2].strip() if len(res) > 2 and res[2].strip().isdigit() else "000"
+        ms_str = res[2].strip() if len(res) > 2 and res[2].strip().isdigit() else ""
         make = res[3].strip() if len(res) > 3 else ""
         model = res[4].strip() if len(res) > 4 else ""
         offset = res[5].strip() if len(res) > 5 else ""
         dt_obj = datetime.strptime(dt_str, "%Y:%m:%d %H:%M:%S").replace(tzinfo=timezone.utc) if dt_str else None
-        return dt_obj, ms_str[:3].zfill(3), make, model, offset
-    except: return None, "000", "", "", ""
+        return dt_obj, ms_str[:3].zfill(3) if ms_str else "", make, model, offset
+    except: return None, "", "", "", ""
 
 def detect_existing_video_tags(path):
-    tags = ['TrackCreateDate', 'TrackModifyDate', 'MediaCreateDate', 'MediaModifyDate']
+    tags = ['TrackCreateDate', 'TrackModifyDate', 'MediaCreateDate', 'MediaModifyDate', 'OffsetTime', 'OffsetTimeOriginal', 'OffsetTimeDigitized', 'SubSecTime', 'SubSecTimeOriginal', 'SubSecTimeDigitized']
     try:
-        cmd = ['exiftool', '-s', '-m'] + [f'-{t}' for t in tags] + [path]
+        cmd = ['exiftool', '-s', '-m', path]
         output = subprocess.check_output(cmd, stderr=subprocess.STDOUT).decode().lower()
         return [t for t in tags if t.lower() in output]
     except: return []
 
 def detect_existing_image_tags(path):
-    tags = ['OffsetTime', 'OffsetTimeOriginal', 'OffsetTimeDigitized']
+    tags = ['OffsetTime', 'OffsetTimeOriginal', 'OffsetTimeDigitized', 'SubSecTime', 'SubSecTimeOriginal', 'SubSecTimeDigitized']
     try:
-        cmd = ['exiftool', '-s', '-m'] + [f'-{t}' for t in tags] + [path]
+        cmd = ['exiftool', '-s', '-m', path]
         output = subprocess.check_output(cmd, stderr=subprocess.STDOUT).decode().lower()
         return [t for t in tags if t.lower() in output]
     except: return []
@@ -155,7 +155,9 @@ def process_master(folder_path):
             if not data['json']: data['json'] = ref['json']
 
     sorted_keys = sorted(collection.keys(), key=lambda k: (collection[k]['ts'], re.sub(r'\(\d+\)', '', collection[k]['base_lower']), 1 if '(' in collection[k]['orig_name'] else 0, 1 if collection[k]['is_video'] else 0))
+    
     occupied_times = {}
+    last_ms_per_second = {}
 
     for k in sorted_keys:
         data = collection[k]
@@ -164,61 +166,82 @@ def process_master(folder_path):
         ts_sec = ts_val / 1000.0 if ts_val > 9999999999 else ts_val
         dt_base = datetime.fromtimestamp(ts_sec, tz=timezone.utc)
         file_identity = data['base_lower']
+        second_key = dt_base.strftime("%Y%m%d_%H%M%S")
 
-        try:
+        if data['ms']:
             ms_val = int(data['ms'])
-        except (ValueError, TypeError):
-            ms_val = 0
+        else:
+            if second_key in last_ms_per_second:
+                ms_val = last_ms_per_second[second_key] + 10
+            else:
+                ms_val = 0
 
         while True:
-            time_key = dt_base.strftime("%Y%m%d_%H%M%S") + str(ms_val).zfill(3)
+            time_key = second_key + str(ms_val).zfill(3)
             if time_key in occupied_times and occupied_times[time_key] != file_identity:
-                ms_val = (ms_val + 10)
+                ms_val += 10
                 continue
             occupied_times[time_key] = file_identity
+            last_ms_per_second[second_key] = ms_val
             break
 
         final_dt = dt_base.replace(microsecond=0) + timedelta(milliseconds=ms_val)
         ms_final = str(ms_val).zfill(3)
         exif_fmt = final_dt.strftime("%Y:%m:%d %H:%M:%S")
+        val = data['offset'] if data['offset'] else ''
 
         cmd = ['exiftool', '-overwrite_original', '-P', '-m', '-api', 'LargeFileSupport=1']
         CLEANUP_TAGS = [
             '-XMP:XMPToolkit=', '-XMP-dc:Description=', '-XMP-xmp:CreatorTool=',
             '-XMP:CreateDate=', '-XMP:ModifyDate=', '-XMP:DateTimeOriginal=',
-            '-XMP-Photoshop:DateCreated=', '-XMP-Photoshop:History='
+            '-photoshop:DateCreated=', '-photoshop:History=',
+            '-OffsetTime=', '-OffsetTimeOriginal=', '-OffsetTimeDigitized=',
+            '-SubSecTime=', '-SubSecTimeOriginal=', '-SubSecTimeDigitized='
         ]
-        
         cmd += CLEANUP_TAGS
 
         if data['json'] and (data['json'].get('geoData', {}).get('latitude', 0.0) != 0.0 or data['json'].get('geoData', {}).get('longitude', 0.0) != 0.0):
             geo = data['json']['geoData']
             cmd += [f'-GPSLatitude={geo.get("latitude", 0.0)}', f'-GPSLongitude={geo.get("longitude", 0.0)}', f'-GPSAltitude={geo.get("altitude", 0.0)}']
 
-        val = data['offset'] if data['offset'] else ''
-
         if data['is_video']:
             v_tags = detect_existing_video_tags(media_path)
             cmd += [f'-FileCreateDate#={exif_fmt}{val}', f'-FileModifyDate#={exif_fmt}{val}',
-                    f'-CreateDate#={exif_fmt}', f'-ModifyDate#={exif_fmt}', f'-DateTimeOriginal#={exif_fmt}',
-                    f'-Keys:CreationDate#={exif_fmt}.{ms_final}{val}', '-UserData:DateTimeOriginal=']
-            if v_tags:
-                cmd += [f'-TrackCreateDate#={exif_fmt}', f'-TrackModifyDate#={exif_fmt}', 
-                        f'-MediaCreateDate#={exif_fmt}', f'-MediaModifyDate#={exif_fmt}']
+                    f'-CreateDate#={exif_fmt}', f'-ModifyDate#={exif_fmt}',
+                    f'-DateTimeOriginal#={exif_fmt}', '-UserData:DateTimeOriginal=']
+            
+            keys_val = exif_fmt
+            if ms_final != '000': keys_val += f".{ms_final}"
+            if val.strip(): keys_val += f"{val}"
+            cmd.append(f'-Keys:CreationDate#={keys_val}')
+
+            if 'TrackCreateDate' in v_tags: cmd.append(f'-TrackCreateDate#={exif_fmt}')
+            if 'TrackModifyDate' in v_tags: cmd.append(f'-TrackModifyDate#={exif_fmt}')
+            if 'MediaCreateDate' in v_tags: cmd.append(f'-MediaCreateDate#={exif_fmt}')
+            if 'MediaModifyDate' in v_tags: cmd.append(f'-MediaModifyDate#={exif_fmt}')
+            if 'OffsetTime' in v_tags: cmd.append(f'-OffsetTime#={val}')
+            if 'OffsetTimeOriginal' in v_tags: cmd.append(f'-OffsetTimeOriginal#={val}')
+            if 'OffsetTimeDigitized' in v_tags: cmd.append(f'-OffsetTimeDigitized#={val}')
+            if 'SubSecTime' in v_tags: cmd.append(f'-SubSecTime={ms_final}')
+            if 'SubSecTimeOriginal' in v_tags: cmd.append(f'-SubSecTimeOriginal={ms_final}')
+            if 'SubSecTimeDigitized' in v_tags: cmd.append(f'-SubSecTimeDigitized={ms_final}')
         else:
             i_tags = detect_existing_image_tags(media_path)
             cmd += [f'-FileCreateDate#={exif_fmt}{val}', f'-FileModifyDate#={exif_fmt}{val}',
-                    f'-CreateDate#={exif_fmt}', f'-ModifyDate#={exif_fmt}', f'-DateTimeOriginal#={exif_fmt}',
-                    f'-SubSecTime#={ms_final}', f'-SubSecTimeOriginal#={ms_final}', f'-SubSecTimeDigitized#={ms_final}']
-            if i_tags:
-                cmd += [f'-OffsetTime#={val}', f'-OffsetTimeOriginal#={val}', f'-OffsetTimeDigitized#={val}']
+                    f'-CreateDate#={exif_fmt}', f'-ModifyDate#={exif_fmt}',
+                    f'-DateTimeOriginal#={exif_fmt}']
+            
+            if 'OffsetTime' in i_tags: cmd.append(f'-OffsetTime#={val}')
+            if 'OffsetTimeOriginal' in i_tags: cmd.append(f'-OffsetTimeOriginal#={val}')
+            if 'OffsetTimeDigitized' in i_tags: cmd.append(f'-OffsetTimeDigitized#={val}')
+            if 'SubSecTime' in i_tags: cmd.append(f'-SubSecTime={ms_final}')
+            if 'SubSecTimeOriginal' in i_tags: cmd.append(f'-SubSecTimeOriginal={ms_final}')
+            if 'SubSecTimeDigitized' in i_tags: cmd.append(f'-SubSecTimeDigitized={ms_final}')
         
         subprocess.run(cmd + [media_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         _, ext_orig_raw = os.path.splitext(data['orig_name'])
-        ext_orig = ext_orig_raw.lower()
-        
-        ext = {'.jpeg': '.jpg', '.tiff': '.tif', '.m4v': '.mp4'}.get(ext_orig, ext_orig)
+        ext = {'.jpeg': '.jpg', '.tiff': '.tif', '.m4v': '.mp4'}.get(ext_orig_raw.lower(), ext_orig_raw.lower())
         dest_dir = os.path.join(abs_folder, final_dt.strftime("%Y"), final_dt.strftime("%m"))
         os.makedirs(dest_dir, exist_ok=True)
 
@@ -244,27 +267,17 @@ def process_master(folder_path):
                 "imageViews": "",
                 "creationTime": time_obj,
                 "photoTakenTime": time_obj,
-                "geoData": orig.get("geoData", {
-                    "latitude": 0.0, "longitude": 0.0, "altitude": 0.0,
-                    "latitudeSpan": 0.0, "longitudeSpan": 0.0
-                }),
-                "geoDataExif": orig.get("geoDataExif", {
-                    "latitude": 0.0, "longitude": 0.0, "altitude": 0.0,
-                    "latitudeSpan": 0.0, "longitudeSpan": 0.0
-                }),
+                "geoData": orig.get("geoData", {"latitude": 0.0, "longitude": 0.0, "altitude": 0.0, "latitudeSpan": 0.0, "longitudeSpan": 0.0}),
+                "geoDataExif": orig.get("geoDataExif", {"latitude": 0.0, "longitude": 0.0, "altitude": 0.0, "latitudeSpan": 0.0, "longitudeSpan": 0.0}),
                 "url": "",
-                "googlePhotosOrigin": orig.get("googlePhotosOrigin", {
-                    "mobileUpload": {"deviceType": "UNKNOWN"}
-                })
+                "googlePhotosOrigin": orig.get("googlePhotosOrigin", {"mobileUpload": {"deviceType": "UNKNOWN"}})
             }
-            
             with open(dest_path + ".json", 'w', encoding='utf-8') as fj:
                 json.dump(new_json, fj, indent=2, ensure_ascii=False)
-
             if data['json_orig_path'] and os.path.exists(data['json_orig_path']):
                 os.remove(data['json_orig_path'])
 
-        print(f"✅ {data['orig_name']} -> {os.path.relpath(dest_path, abs_folder)}")
+        print(f"✅ {data['orig_name']} -> {os.path.relpath(dest_path, abs_folder)} (ms: {ms_final})")
 
     print("\n" + "="*40 + f"\n🚀 PROCESS COMPLETED\n📸 Photos: {photo_count}\n🎥 Videos: {video_count}\n" + "="*40)
 
