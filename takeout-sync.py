@@ -146,23 +146,20 @@ def update_media_metadata(media_path, json_dt, offset_str, ms_str_json, extracte
     clean_off = final_offset.replace(":", "") if final_offset and ":" in final_offset else (final_offset if final_offset else "UTC")
     return local_str, qt_fmt, keys_val, final_offset, ms, final_make, final_model, clean_off, iso_fmt, has_ms
 def detect_final_suffix(make, model, dt_obj, d_json):
-    if not make and not model:
-        return ""
-    full_info = f"{make or ''} {model or ''}".lower()
-    if 'nokia' in full_info:
-        if 'lumia' in full_info: return "_WinPhone"
-        if re.search(r'nokia [1-9](\.[1-9])?|nokia [gcx][0-9]', full_info) or (dt_obj and dt_obj.year >= 2017): return "_Android"
-        return "_Symbian"
-    if 'blackberry' in full_info or 'rim' in full_info or 'q10' in full_info or 'z10' in full_info:
-        return "_BlackBerry"
-    for key, suffix in PLATFORM_MAPPING.items():
-        if key in full_info:
-            return f"_{suffix}"
-    try:
-        dtype = d_json['googlePhotosOrigin']['mobileUpload']['deviceType'].upper()
-        if 'IOS' in dtype: return "_iOS"
-        if 'ANDROID' in dtype: return "_Android"
-    except: pass
+    full_info = f"{make or ''} {model or ''}".lower().strip()
+    if full_info:
+        if 'nokia' in full_info:
+            if re.search(r'nokia [1-9](\.[1-9])?|nokia [gcx][0-9]', full_info) or (dt_obj and dt_obj.year >= 2017): return "_Android"
+            return "_Symbian"
+        for key, suffix in PLATFORM_MAPPING.items():
+            if key in full_info:
+                return f"_{suffix}"
+    if d_json:
+        try:
+            dtype = d_json['googlePhotosOrigin']['mobileUpload']['deviceType'].upper()
+            if 'IOS' in dtype: return "_iOS"
+            if 'ANDROID' in dtype: return "_Android"
+        except: pass
     return ""
 def process_master(folder_path):
     global neighbor_tz
@@ -183,23 +180,23 @@ def process_master(folder_path):
         extracted_data = get_media_metadata(current_path)
         (x_tool, x_dt, x_dc_dt, e_dt, e_dto_dt, e_ot, e_sst, 
          q_dt, q_track_dt, q_media_dt, k_dt, make, model) = extracted_data
-        # ==========================================================
-        # 🔎 DEBUG DE CAPTURA (TAKEOUT-SYNC)
-        # ==========================================================
-        print(f"\n--- [DEBUG DE CAPTURA: {file_name}] ---")
-        print(f"XMP Tool:    '{x_tool}'")
-        print(f"XMP Date:    '{x_dt}'")
-        print(f"XMP Create:  '{x_dc_dt}'")
-        print(f"EXIF Date:   '{e_dt}'")
-        print(f"EXIF Orig:   '{e_dto_dt}'")
-        print(f"EXIF Offset: '{e_ot}'")
-        print(f"EXIF SubSec: '{e_sst}'")
-        print(f"QT Date:     '{q_dt}'")
-        print(f"QT Track:    '{q_track_dt}'")
-        print(f"QT Media:    '{q_media_dt}'")
-        print(f"Keys Apple:  '{k_dt}'")
-        print("-" * 40)
-        # ==========================================================
+#        # ==========================================================
+#        # 🔎 CAPTURE DEBUG (TAKEOUT-SYNC)
+#        # ==========================================================
+#        print(f"\n--- [CAPTURE DEBUG: {file_name}] ---")
+#        print(f"XMP Tool:    '{x_tool}'")
+#        print(f"XMP Date:    '{x_dt}'")
+#        print(f"XMP Create:  '{x_dc_dt}'")
+#        print(f"EXIF Date:   '{e_dt}'")
+#        print(f"EXIF Orig:   '{e_dto_dt}'")
+#        print(f"EXIF Offset: '{e_ot}'")
+#        print(f"EXIF SubSec: '{e_sst}'")
+#        print(f"QT Date:     '{q_dt}'")
+#        print(f"QT Track:    '{q_track_dt}'")
+#        print(f"QT Media:    '{q_media_dt}'")
+#        print(f"Keys Apple:  '{k_dt}'")
+#        print("-" * 40)
+#        # ==========================================================
         d_json = None
         geo_payload = []
         if json_path:
@@ -367,34 +364,34 @@ def process_master(folder_path):
             '-QuickTime:MediaCreateDate=', '-QuickTime:MediaModifyDate=',
             '-Keys:CreationDate=']
         subprocess.run(cmd_clean + CLEANUP_TAGS + [media_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        # ==========================================================
-        # 🔎 DEBUG DE ESCRITURA (TAKEOUT-SYNC) - ESPEJO SIMÉTRICO
-        # ==========================================================
-        print(f"\n--- [DEBUG DE ESCRITURA: {final_base}] ---")
-        w_tool = x_tool if x_tool else ""
-        w_x_dt = f"{exif_fmt}.{ms_metadata}{val}" if x_dt else ""
-        w_x_dc = f"{exif_fmt}.{ms_metadata}{val}" if x_dc_dt else ""
-        w_e_dt = exif_fmt if e_dt else ""
-        w_e_dto = exif_fmt if e_dto_dt else ""
-        w_e_ot = val if e_ot else ""
-        w_e_sst = ms_metadata if e_sst else ""
-        w_q_dt = qt_fmt if q_dt else ""
-        w_q_tr = qt_fmt if q_track_dt else ""
-        w_q_me = qt_fmt if q_media_dt else ""
-        w_k_dt = iso_fmt
-        print(f"XMP Tool:    '{w_tool}'")
-        print(f"XMP Date:    '{w_x_dt}'")
-        print(f"XMP Create:  '{w_x_dc}'")
-        print(f"EXIF Date:   '{w_e_dt}'")
-        print(f"EXIF Orig:   '{w_e_dto}'")
-        print(f"EXIF Offset: '{w_e_ot}'")
-        print(f"EXIF SubSec: '{w_e_sst}'")
-        print(f"QT Date:     '{w_q_dt}'")
-        print(f"QT Track:    '{w_q_tr}'")
-        print(f"QT Media:    '{w_q_me}'")
-        print(f"Keys Apple:  '{w_k_dt}'")
-        print("-" * 40)
-        # ==========================================================
+#        # ==========================================================
+#        # 🔎 WRITE DEBUG (TAKEOUT-SYNC)
+#        # ==========================================================
+#        print(f"\n--- [DEBUG DE ESCRITURA: {final_base}] ---")
+#        w_tool = x_tool if x_tool else ""
+#        w_x_dt = f"{exif_fmt}.{ms_metadata}{val}" if x_dt else ""
+#        w_x_dc = f"{exif_fmt}.{ms_metadata}{val}" if x_dc_dt else ""
+#        w_e_dt = exif_fmt if e_dt else ""
+#        w_e_dto = exif_fmt if e_dto_dt else ""
+#        w_e_ot = val if e_ot else ""
+#        w_e_sst = ms_metadata if e_sst else ""
+#        w_q_dt = qt_fmt if q_dt else ""
+#        w_q_tr = qt_fmt if q_track_dt else ""
+#        w_q_me = qt_fmt if q_media_dt else ""
+#        w_k_dt = iso_fmt
+#        print(f"XMP Tool:    '{w_tool}'")
+#        print(f"XMP Date:    '{w_x_dt}'")
+#        print(f"XMP Create:  '{w_x_dc}'")
+#        print(f"EXIF Date:   '{w_e_dt}'")
+#        print(f"EXIF Orig:   '{w_e_dto}'")
+#        print(f"EXIF Offset: '{w_e_ot}'")
+#        print(f"EXIF SubSec: '{w_e_sst}'")
+#        print(f"QT Date:     '{w_q_dt}'")
+#        print(f"QT Track:    '{w_q_tr}'")
+#        print(f"QT Media:    '{w_q_me}'")
+#        print(f"Keys Apple:  '{w_k_dt}'")
+#        print("-" * 40)
+#        # ==========================================================
         cmd = ['exiftool', '-overwrite_original', '-P', '-m', '-api', 'LargeFileSupport=1', '-api', 'xmp-write=None',
                '-unsafe', '-tagsFromFile', '@', '-MakerNotes']
         cmd += [f'-FileCreateDate#={exif_fmt}.{ms_metadata}{val}', f'-FileModifyDate#={exif_fmt}.{ms_metadata}{val}']
