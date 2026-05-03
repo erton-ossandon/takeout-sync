@@ -394,7 +394,7 @@ def process_master(folder_path):
 #        # ==========================================================
         cmd = ['exiftool', '-overwrite_original', '-P', '-m', '-api', 'LargeFileSupport=1', '-api', 'xmp-write=None',
                '-unsafe', '-tagsFromFile', '@', '-MakerNotes']
-        cmd += [f'-FileCreateDate#={exif_fmt}.{ms_metadata}{val}', f'-FileModifyDate#={exif_fmt}.{ms_metadata}{val}']
+        cmd += [f'-FileCreateDate#={exif_fmt}{val}', f'-FileModifyDate#={exif_fmt}{val}']
         if geo_payload: 
             cmd += geo_payload
         if x_tool: 
