@@ -14,7 +14,8 @@ An advanced automation tool designed to reorganize, rename, and repair metadata 
 ## How to use:
 1. Save this code in a file called `takeout-sync.py`.
 2. Make sure you have `exiftool` installed on your system.
-3. Run it with **`python takeout-sync.py`** inside the folder where your Google Takeout files are located.
+3. Make sure you have `timezonefinder` and `tzlocal` libraries in your environment.
+4. Run it with **`python takeout-sync.py`** inside the folder where your Google Takeout files are located.
 
 ## Useful links:
 **Obtaining Exiftool**
